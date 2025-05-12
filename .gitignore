@@ -1,5 +1,16 @@
+# Python
+/__pycache__
+
+# video folders
 input/*
 output/*
-
 !input/.gitkeep
 !output/.gitkeep
+
+# video files
+*.mp4
+*.mov
+
+# audio files
+*.mp3
+*.wav

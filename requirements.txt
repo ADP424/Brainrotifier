@@ -1,2 +1,6 @@
+audioop-lts; python_version >= "3.13"
+black
+flake8
+flake8-pyproject
 moviepy
-numpy
+pydub
