@@ -1,57 +1,124 @@
-import os
-from pydub import AudioSegment
-from pydub.silence import detect_silence
 import tempfile
-from moviepy import VideoFileClip, AudioFileClip
-from moviepy.audio.fx import AudioNormalize
+from moviepy import CompositeVideoClip, TextClip, VideoFileClip, clips_array
+from faster_whisper import WhisperModel
+from faster_whisper.transcribe import Word
 
-from CONSTANTS import INPUT_DIR, BUFFER, MAX_LENGTH, MIN_LENGTH, OUTPUT_DIR, SILENCE_THRESHOLD
-
-
-def detect_pause(
-    video_clip: VideoFileClip,
-    start_time: int | float = MIN_LENGTH,
-    end_time: int | float = MAX_LENGTH,
-    silence_thresh_db: int | float = SILENCE_THRESHOLD,
-):
-    """
-    Find a natural pause in audio after a given time using volume thresholds.
-    """
-
-    sample_rate = 44100
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
-        video_clip.subclipped(start_time, end_time).audio.write_audiofile(tmp_audio.name, fps=sample_rate)
-        audio_seg = AudioSegment.from_wav(tmp_audio.name)
-
-    silence_segments = detect_silence(audio_seg, min_silence_len=1000, silence_thresh=silence_thresh_db)
-    if len(silence_segments) > 0:
-        start_silence: float = silence_segments[0][0] / 1000
-        return start_time + start_silence + BUFFER
-    return end_time
+from CONSTANTS import FONTS_DIR, INPUT_DIR, OUTPUT_DIR, SAMPLE_RATE, SHORT_HEIGHT, SHORT_WIDTH, VIDEOS_DIR
+from model.VideoShorts import VideoShorts
 
 
-def split_video_naturally(video_path: str, output_dir: str):
-    clip = VideoFileClip(video_path)
-    total_duration: float = clip.duration
-    curr_time = 0
-    part = 1
+def add_bottom_clip(short: VideoFileClip, bottom_clip: VideoFileClip) -> CompositeVideoClip:
+    target_short_height = 2 * SHORT_HEIGHT // 3
+    target_bottom_clip_height = SHORT_HEIGHT // 3
+    short = short.resized(height=target_short_height)
+    bottom_clip = (
+        bottom_clip.without_audio()
+        .subclipped(0, short.duration)
+        .with_fps(short.fps)
+        .resized(height=target_bottom_clip_height)
+    )
+    return clips_array([[short], [bottom_clip]]).resized(width=SHORT_WIDTH, height=SHORT_HEIGHT)
 
-    while curr_time < total_duration:
-        end_guess = min(curr_time + MAX_LENGTH, total_duration)
-        subclip: VideoFileClip = clip.subclipped(curr_time, end_guess)
-        audio: AudioFileClip = subclip.with_effects([AudioNormalize()])
 
-        pause_time = detect_pause(audio)
-        actual_end = min(curr_time + pause_time, total_duration)
+def make_vertical(short: VideoFileClip) -> VideoFileClip:
+    width, height = short.size
+    new_width = int(height * 9 / 16)
+    x_center = width // 2
+    x1 = x_center - new_width // 2
+    x2 = x_center + new_width // 2
 
-        print(f"Writing part {part}: {curr_time:.2f} to {actual_end:.2f}")
-        output_path = os.path.join(output_dir, f"clip_part_{part}.mp4")
-        clip.subclipped(curr_time, actual_end).write_videofile(output_path, codec="libx264", audio_codec="aac")
+    return short.cropped(x1=x1, y1=0, x2=x2, y2=height)
 
-        curr_time = actual_end
-        part += 1
+
+def add_subtitles(short: VideoFileClip, words: list[Word], start_time: float) -> CompositeVideoClip:
+
+    # quick binary search
+    low = 0
+    high = len(words)
+    start_index = 0
+
+    while low <= high:
+        mid = (low + high) // 2
+
+        if start_time < words[mid].start:
+            high = mid - 1
+        elif start_time > words[mid].end:
+            low = mid + 1
+        else:
+            start_index = mid
+            break
+
+    subtitle_clips = []
+    index = start_index
+    while words[index].start <= start_time + short.duration:
+        word = words[index]
+        text = word.word.strip()
+
+        if len(text) == 0:
+            index += 1
+            continue
+
+        sub_start = max(word.start - start_time, 0)
+        sub_duration = min(word.end - sub_start - start_time, short.duration - sub_start)
+        text_clip = (
+            TextClip(
+                font=f"{FONTS_DIR}/lato_bold.otf",
+                text=text,
+                font_size=72,
+                size=(1080, 200),
+                color="white",
+                stroke_color="black",
+                stroke_width=8,
+                method="caption",
+                text_align="center",
+            )
+            .with_position(("center", "center"))
+            .with_duration(sub_duration)
+            .with_start(sub_start)
+        )
+        subtitle_clips.append(text_clip)
+
+        index += 1
+
+    return CompositeVideoClip([short] + subtitle_clips)
+
+
+def get_subtitles(file_name: str) -> list[Word]:
+    model = WhisperModel("small", compute_type="int8", device="cpu")
+    movie = VideoFileClip(f"{INPUT_DIR}/{file_name}")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_audio:
+        movie.audio.write_audiofile(tmp_audio.name, fps=SAMPLE_RATE)
+        segments, _ = model.transcribe(
+            f"{INPUT_DIR}/{file_name}", beam_size=5, vad_filter=True, word_timestamps=True, no_speech_threshold=0.6
+        )  # TODO: try lower speech threshold
+    print("Finished creating the segments!")
+
+    audio_segments = []
+    for segment in segments:
+        print(f"[{segment.start:.2f}s - {segment.end:.2f}s] {segment.text}")
+        for word in segment.words:
+            print(f"\t[{word.start:.2f}s - {word.end:.2f}s] {word.word}")
+            audio_segments.append(word)
+
+    return audio_segments
+
+
+def main(movie_name: str, movie_extension: str):
+    video_shorts = VideoShorts(f"{INPUT_DIR}/{movie_name}.{movie_extension}")
+    subtitles = get_subtitles(f"{movie_name}.{movie_extension}")
+
+    subway_surfers = VideoFileClip(f"{VIDEOS_DIR}/subway_surfers.mp4")
+
+    total_duration: float = 0
+    for i, short in enumerate(video_shorts.shorts):
+        short = add_bottom_clip(short, subway_surfers)
+        short = make_vertical(short)
+        short = add_subtitles(short, subtitles, total_duration)
+        short.write_videofile(f"{OUTPUT_DIR}/{movie_name}_{i + 1}.mp4", codec="libx264", audio_codec="aac")
+
+        total_duration += short.duration
 
 
 if __name__ == "__main__":
-    split_video_naturally(f"{INPUT_DIR}/aardman_classics.mp4", f"{OUTPUT_DIR}/")
+    main("the_one_set", "mp4")

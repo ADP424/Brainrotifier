@@ -1,5 +1,6 @@
 audioop-lts; python_version >= "3.13"
 black
+faster-whisper
 flake8
 flake8-pyproject
 moviepy
