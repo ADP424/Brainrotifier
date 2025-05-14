@@ -1,13 +1,34 @@
+import random
 import tempfile
 from moviepy import CompositeVideoClip, TextClip, VideoFileClip, clips_array
 from faster_whisper import WhisperModel
 from faster_whisper.transcribe import Word
 
-from CONSTANTS import FONTS_DIR, INPUT_DIR, OUTPUT_DIR, SAMPLE_RATE, SHORT_HEIGHT, SHORT_WIDTH, VIDEOS_DIR
+from CONSTANTS import BOTTOM_CLIPS, FONTS_DIR, INPUT_DIR, OUTPUT_DIR, SAMPLE_RATE, SHORT_HEIGHT, SHORT_WIDTH
 from model.VideoShorts import VideoShorts
 
 
-def add_bottom_clip(short: VideoFileClip, bottom_clip: VideoFileClip) -> CompositeVideoClip:
+def add_bottom_clip(short: VideoFileClip, bottom_clip: VideoFileClip = None) -> CompositeVideoClip:
+    """
+    Merge the short with another clip so that the bottom clip takes up 1/3 of the screen.
+
+    Parameters
+    ----------
+    short: VideoFileClip
+        The short to add the bottom clip to.
+
+    bottom_clip: VideoFileClip, optional
+        The clip to add to the bottom of the short. If not given, choose a random one.
+
+    Returns
+    -------
+    CompositeVideoClip
+        The short with the bottom clip attached.
+    """
+
+    if bottom_clip is None:
+        bottom_clip = BOTTOM_CLIPS[random.choice(list(BOTTOM_CLIPS.keys()))]
+
     target_short_height = 2 * SHORT_HEIGHT // 3
     target_bottom_clip_height = SHORT_HEIGHT // 3
     short = short.resized(height=target_short_height)
@@ -90,8 +111,8 @@ def get_subtitles(file_name: str) -> list[Word]:
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_audio:
         movie.audio.write_audiofile(tmp_audio.name, fps=SAMPLE_RATE)
         segments, _ = model.transcribe(
-            f"{INPUT_DIR}/{file_name}", beam_size=5, vad_filter=True, word_timestamps=True, no_speech_threshold=0.6
-        )  # TODO: try lower speech threshold
+            f"{INPUT_DIR}/{file_name}", beam_size=5, vad_filter=True, word_timestamps=True, no_speech_threshold=0.5
+        )
     print("Finished creating the segments!")
 
     audio_segments = []
@@ -104,21 +125,23 @@ def get_subtitles(file_name: str) -> list[Word]:
     return audio_segments
 
 
-def main(movie_name: str, movie_extension: str):
+def main(movie_name: str, movie_extension: str, stage: str = "prod"):
     video_shorts = VideoShorts(f"{INPUT_DIR}/{movie_name}.{movie_extension}")
     subtitles = get_subtitles(f"{movie_name}.{movie_extension}")
 
-    subway_surfers = VideoFileClip(f"{VIDEOS_DIR}/subway_surfers.mp4")
-
     total_duration: float = 0
     for i, short in enumerate(video_shorts.shorts):
-        short = add_bottom_clip(short, subway_surfers)
+        short = add_bottom_clip(short)
         short = make_vertical(short)
         short = add_subtitles(short, subtitles, total_duration)
-        short.write_videofile(f"{OUTPUT_DIR}/{movie_name}_{i + 1}.mp4", codec="libx264", audio_codec="aac")
+        short.write_videofile(
+            f"{OUTPUT_DIR}/{movie_name}_{"exp_" if stage == "dev" else ""}{i + 1}.mp4",
+            codec="libx264",
+            audio_codec="aac",
+        )
 
         total_duration += short.duration
 
 
 if __name__ == "__main__":
-    main("the_one_set", "mp4")
+    main("the_one_set", "mp4", stage="dev")

@@ -28,13 +28,14 @@ class VideoShorts:
             subclip: VideoFileClip = self.full_movie.subclipped(curr_time, end_guess)
             audio: AudioFileClip = subclip.with_effects([AudioNormalize()])
 
-            pause_time = self._detect_pause(audio)
+            pause_time, resume_time = self._detect_pause(audio)
             actual_end = min(curr_time + pause_time, total_duration)
+            actual_resume = min(curr_time + resume_time, total_duration)
 
             print(f"Writing part {part}: {curr_time:.2f} to {actual_end:.2f}")
             self.shorts.append(self.full_movie.subclipped(curr_time, actual_end))
 
-            curr_time = actual_end
+            curr_time = actual_resume
             part += 1
 
     def _detect_pause(
@@ -51,12 +52,13 @@ class VideoShorts:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
             duration: float = video_clip.duration
             if duration <= start_time:
-                return duration
+                return duration, duration
             video_clip.subclipped(start_time, end_time).audio.write_audiofile(tmp_audio.name, fps=SAMPLE_RATE)
             audio_seg = AudioSegment.from_wav(tmp_audio.name)
 
         silence_segments = detect_silence(audio_seg, min_silence_len=1000, silence_thresh=silence_thresh_db)
         if len(silence_segments) > 0:
             start_silence: float = silence_segments[0][0] / 1000
-            return start_time + start_silence + BUFFER
-        return end_time
+            end_silence: float = silence_segments[0][1] / 1000
+            return start_time + start_silence + BUFFER, start_time + end_silence
+        return end_time, end_time
