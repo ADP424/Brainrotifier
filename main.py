@@ -6,7 +6,8 @@ from faster_whisper.transcribe import Word
 
 from CONSTANTS import BOTTOM_CLIPS, FONTS_DIR, INPUT_DIR, OUTPUT_DIR, SAMPLE_RATE, SHORT_HEIGHT, SHORT_WIDTH
 from model.VideoShorts import VideoShorts
-
+from  model.Summarize import summarize
+from gtts import gTTS
 
 def add_bottom_clip(short: VideoFileClip, bottom_clip: VideoFileClip = None) -> CompositeVideoClip:
     """
@@ -106,6 +107,7 @@ def add_subtitles(short: VideoFileClip, words: list[Word], start_time: float) ->
 
 def get_subtitles(file_name: str) -> list[Word]:
     model = WhisperModel("small", compute_type="int8", device="cpu")
+
     movie = VideoFileClip(f"{INPUT_DIR}/{file_name}")
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_audio:
@@ -129,6 +131,17 @@ def main(movie_name: str, movie_extension: str, stage: str = "prod"):
     video_shorts = VideoShorts(f"{INPUT_DIR}/{movie_name}.{movie_extension}")
     subtitles = get_subtitles(f"{movie_name}.{movie_extension}")
 
+    subtitle_document = ""
+    for subtitle in subtitles:
+        subtitle_document += f"{subtitle.word}"
+
+    summary = summarize(subtitle_document)
+    tts = gTTS(summary)
+    tts.save(f'{OUTPUT_DIR}/summary.mp3')
+
+    print(f"[{subtitle_document}")
+    print(subtitles)
+
     total_duration: float = 0
     for i, short in enumerate(video_shorts.shorts):
         short = add_bottom_clip(short)
@@ -144,4 +157,4 @@ def main(movie_name: str, movie_extension: str, stage: str = "prod"):
 
 
 if __name__ == "__main__":
-    main("the_one_set", "mp4", stage="dev")
+    main("FastFoodGordon", "mov", stage="dev")
