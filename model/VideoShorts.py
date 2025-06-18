@@ -16,15 +16,26 @@ from CONSTANTS import BUFFER, FONTS_DIR, MAX_LENGTH, MIN_LENGTH, SAMPLE_RATE, SI
 
 class VideoShorts:
 
-    def __init__(self, video_folder_path: str, video_file_name: str, add_subtitles: bool = True):
+    def __init__(
+        self,
+        video_folder_path: str,
+        video_file_name: str,
+        min_length: int = MIN_LENGTH,
+        max_length: int = MAX_LENGTH,
+        add_subtitles: bool = True,
+    ):
         self.video_folder_path = video_folder_path
         self.video_file_name = video_file_name
         self.video_path = f"{video_folder_path}/{video_file_name}"
 
+        self.min_length = min_length
+        self.max_length = max_length
+
         self.add_subtitles = add_subtitles
 
         self.full_subtitles: list[Word] = []
-        self._get_subtitles()
+        if add_subtitles:
+            self._get_subtitles()
 
         self.full_movie = None
         self.shorts: list[Short] = []
@@ -42,7 +53,7 @@ class VideoShorts:
             subclip: VideoFileClip = self.full_movie.subclipped(curr_time, end_guess)
             audio: AudioFileClip = subclip.with_effects([AudioNormalize()])
 
-            pause_time, resume_time = self._detect_pause(audio)
+            pause_time, resume_time = self._detect_pause(audio, self.min_length, self.max_length)
             actual_end = min(curr_time + pause_time, total_duration)
             actual_resume = min(curr_time + resume_time, total_duration)
 
@@ -52,7 +63,7 @@ class VideoShorts:
             short_transcript: list[Word] = []
             subtitle_clips: list[VideoFileClip] = []
             while (
-                subtitle_index < len(self.full_subtitles) and self.full_subtitles[subtitle_index].start < short.end_time
+                0 <= subtitle_index < len(self.full_subtitles) and self.full_subtitles[subtitle_index].start < short.end_time
             ):
                 word = self.full_subtitles[subtitle_index]
                 short_transcript.append(word)
@@ -93,8 +104,8 @@ class VideoShorts:
     def _detect_pause(
         self,
         video_clip: VideoFileClip,
-        start_time: int | float = MIN_LENGTH,
-        end_time: int | float = MAX_LENGTH,
+        start_time: int | float,
+        end_time: int | float,
         silence_thresh_db: int | float = SILENCE_THRESHOLD,
     ):
         """

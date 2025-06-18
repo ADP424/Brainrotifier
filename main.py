@@ -1,7 +1,8 @@
+import argparse
 import random
 from moviepy import VideoFileClip, clips_array
 
-from CONSTANTS import BOTTOM_CLIPS, INPUT_DIR, OUTPUT_DIR, SHORT_HEIGHT, SHORT_WIDTH
+from CONSTANTS import BOTTOM_CLIPS, INPUT_DIR, MAX_LENGTH, MIN_LENGTH, OUTPUT_DIR, SHORT_HEIGHT, SHORT_WIDTH
 from model.Short import Short
 from model.VideoShorts import VideoShorts
 
@@ -43,11 +44,20 @@ def make_vertical(short: Short):
     short.clip = short.clip.cropped(x1=x1, y1=0, x2=x2, y2=height)
 
 
-def main(movie_name: str, movie_extension: str, stage: str = "prod"):
-    video_shorts = VideoShorts(f"{INPUT_DIR}/", f"{movie_name}.{movie_extension}")
+def main(
+    movie_name: str,
+    movie_extension: str,
+    min_length: int = MIN_LENGTH,
+    max_length: int = MAX_LENGTH,
+    do_bottom_clip: bool = True,
+    do_subtitles: bool = True,
+    stage: str = "prod",
+):
+    video_shorts = VideoShorts(f"{INPUT_DIR}/", f"{movie_name}.{movie_extension}", min_length, max_length, do_subtitles)
 
     for i, short in enumerate(video_shorts.shorts):
-        add_bottom_clip(short)
+        if do_bottom_clip:
+            add_bottom_clip(short)
         make_vertical(short)
 
         short.clip.write_videofile(
@@ -58,4 +68,56 @@ def main(movie_name: str, movie_extension: str, stage: str = "prod"):
 
 
 if __name__ == "__main__":
-    main("the_one_set", "mp4", stage="dev")
+    parser = argparse.ArgumentParser(description="Convert text into Minecraft books.")
+
+    parser.add_argument(
+        "-i",
+        "--input",
+        default=None,
+        required=True,
+        help="The name of the input file to convert, including the file extension.",
+        dest="input",
+    )
+    parser.add_argument(
+        "-min",
+        "--min-length",
+        type=int,
+        default=MIN_LENGTH,
+        help="The minimum length of each short in seconds. Default is 45.",
+        dest="min_length",
+    )
+    parser.add_argument(
+        "-max",
+        "--max-length",
+        type=int,
+        default=MAX_LENGTH,
+        help="The maximum length of each short in seconds. Default is 60.",
+        dest="max_length",
+    )
+    parser.add_argument(
+        "-nbc",
+        "--no-bottom-clip",
+        action="store_false",
+        help="Disable adding a random extra clip (e.g. subway surfers) on the bottom of each short.",
+        dest="bottom_clip",
+    )
+    parser.add_argument(
+        "-ns",
+        "--no-subtitles",
+        action="store_false",
+        help="Disable adding subtitles to each short.",
+        dest="subtitles",
+    )
+    args = parser.parse_args()
+
+    movie_name, movie_extension = args.input.split(".")
+
+    main(
+        movie_name,
+        movie_extension,
+        min_length=args.min_length,
+        max_length=args.max_length,
+        do_bottom_clip=args.bottom_clip,
+        do_subtitles=args.subtitles,
+        stage="dev",
+    )

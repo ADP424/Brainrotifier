@@ -6,8 +6,8 @@ INPUT_DIR = "input"
 OUTPUT_DIR = "output"
 VIDEOS_DIR = "assets/videos"
 
-MIN_LENGTH = 5
-MAX_LENGTH = 10
+MIN_LENGTH = 45
+MAX_LENGTH = 60
 BUFFER = 0.5
 SILENCE_THRESHOLD = -30
 
